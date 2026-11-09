@@ -2,9 +2,11 @@
 """Структура и контракт MARSHDWG.lsp.
 
 1. src и dist разбираются как LISP (формы, арности, CP1251/CRLF).
-2. Все вызовы md:* имеют defun, все defun md:* вызываются.
-3. Все переменные *md:* объявлены и читаются.
-4. Правила в коде совпадают с эталоном tests/check_rules.py.
+2. Ни один (defun не вложен в другой и скобки сходятся (полноценный
+   токенизатор lisp_parse, а не подсчёт символов: `\"` он понимает).
+3. Все вызовы md:* имеют defun, все defun md:* вызываются.
+4. Все переменные *md:* объявлены и читаются.
+5. Правила в коде совпадают с эталоном tests/check_rules.py.
 """
 from pathlib import Path
 import re
@@ -18,6 +20,14 @@ import check_rules  # noqa: E402
 ROOT = HERE.parent
 SRC = ROOT / "src" / "MARSHDWG.lsp"
 DIST = ROOT / "dist" / "MARSHDWG.lsp"
+EXPECT_DEFUN = 53
+
+
+def top_level_defun(src):
+    """Сколько defun стоит на верхнем уровне — по разобранному дереву."""
+    forms = lisp_parse.parse(src)
+    return sum(1 for f in forms
+               if isinstance(f, list) and f and f[0].lower() == "defun")
 
 
 def main():
@@ -35,6 +45,27 @@ def main():
               f"bytes={info['bytes']}")
 
     src = SRC.read_text(encoding="utf-8")
+
+    # Незакрытая форма «проглатывает» следующие defun: для парсера это
+    # валидное дерево, defun просто оказывается вложенным. Считаем не по
+    # символам, а по разобранному дереву — lisp_parse понимает `\"` в строках.
+    try:
+        total = len(re.findall(r"\(defun\s+", src))
+        top = top_level_defun(src)
+        if top != total:
+            print(f"FAIL проглоченные defun: {total - top} из {total} "
+                  "вложены в другие формы")
+            ok = False
+        elif top != EXPECT_DEFUN:
+            print(f"FAIL defun на верхнем уровне: {top}, ожидалось {EXPECT_DEFUN}"
+                  " — если число изменено намеренно, поправьте EXPECT_DEFUN")
+            ok = False
+        else:
+            print(f"OK   скобки: глубина 0, все {top} defun на верхнем уровне")
+    except Exception as exc:  # noqa: BLE001
+        print(f"FAIL разбор дерева: {exc}")
+        ok = False
+
     if src.replace("\n", "\r\n").encode("cp1251") == DIST.read_bytes():
         print("OK   dist == src (CP1251/CRLF)")
     else:
@@ -72,6 +103,17 @@ def main():
         ok = False
     else:
         print(f"OK   переменных *md:*: {len(declared)}")
+
+    # Конфиг-параметры должны читаться в коде, а не только объявляться:
+    # иначе флаг в README обещает то, чего код не делает.
+    dead = sorted(n for n in ("recurse", "scan-paperspace", "require-backup")
+                  if src.count(f"*md:{n}*") < 2)
+    if dead:
+        print("FAIL параметры объявлены, но не используются:", dead)
+        ok = False
+    else:
+        print("OK   параметры *md:recurse*, *md:scan-paperspace*, "
+              "*md:require-backup* используются")
 
     # зеркало правил
     checks = [

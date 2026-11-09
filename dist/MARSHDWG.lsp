@@ -11,11 +11,14 @@
 ;;; Файл: CP1251 + CRLF. Правки — точечные.
 ;;; Работа идёт через ActiveX/ObjectDBX: файлы не открываются в редакторе,
 ;;; окна не появляются, поэтому возможен пакетный прогон.
+;;;
+;;; Ред. 1.2 — после ревью: backup-подпапка вне обхода, фон штриховки не
+;;; считается изменением, require-backup работает, счётчики идемпотентны.
 ;;; ============================================================================
 
 (vl-load-com)
 
-(setq *md:rev* "Ред. 1.0")
+(setq *md:rev* "Ред. 1.2")
 
 ;;; ---------------------------------------------------------------------------
 ;;; 1. ПРАВИЛА (единственное место, где что-то настраивается)
@@ -32,6 +35,9 @@
 (setq *md:attr-height* nil)               ; nil = не менять высоту атрибута
 (setq *md:name-marker* "ОП")              ; маркер второй части имени файла
 (setq *md:backup-subdir* "MARSHDWG_BACKUP") ; подпапка резервных копий
+(setq *md:require-backup* t)              ; t = без копии файл не обрабатывается
+(setq *md:scan-paperspace* nil)           ; t = обрабатывать и листы (Layout)
+(setq *md:recurse* nil)                   ; t = обходить вложенные папки
 (setq *md:log-name* "MARSHDWG_LOG.txt")     ; журнал прогона
 
 ;; п.1 Выключить слои
@@ -211,39 +217,55 @@
 ;;; 3. ИЗМЕНЕНИЯ ОБЪЕКТОВ
 ;;; ---------------------------------------------------------------------------
 
-(defun md:set-h (o h / cur)
+(defun md:set-h (o h / cur done)
   (if (and (vlax-property-available-p o 'Height t)
            (not (equal (setq cur (md:try 'vla-get-Height o nil)) h 1e-6)))
-    (if (md:try-set 'vla-put-Height o h)
-      (md:bump "height")
-      (md:bump "locked"))))
+    (progn
+      (setq done (md:try-set 'vla-put-Height o h))
+      (if done (md:bump "height") (md:bump "locked"))
+      done)))
 
-(defun md:set-color (o c / cur)
+(defun md:set-color (o c / cur done)
   (if (not (equal (setq cur (md:try 'vla-get-Color o nil)) c))
-    (if (md:try-set 'vla-put-Color o c)
-      (md:bump "color")
-      (md:bump "locked"))))
+    (progn
+      (setq done (md:try-set 'vla-put-Color o c))
+      (if done (md:bump "color") (md:bump "locked"))
+      done)))
 
 ;; Задний план текста «нет» = BackgroundFill в положение «как у чертежа»
 ;; (:vlax-false), а не «маска» (:vlax-true).
-(defun md:bg-off (o)
+;; «Включено» для :vlax-true / 1 / -1, «выключено» для nil / 0 / :vlax-false.
+;; Разные версии AutoCAD отдают то -1, то 1 — сравнивать через eq нельзя.
+(defun md:on-p (v)
+  (cond ((null v) nil)
+        ((eq v :vlax-false) nil)
+        ((eq v :vlax-true) t)
+        ((numberp v) (/= v 0))
+        (t t)))
+
+(defun md:bg-off (o / cur)
   (cond
     ((not (vlax-property-available-p o 'BackgroundFill t)) nil)
-    ((eq :vlax-true (md:try 'vla-get-BackgroundFill o nil))
-     (md:try-set 'vla-put-BackgroundFill o :vlax-false)
-     (md:bump "bg-off"))))
+    ((md:on-p (setq cur (md:try 'vla-get-BackgroundFill o nil)))
+     (if (md:try-set 'vla-put-BackgroundFill o :vlax-false)
+       (progn (md:bump "bg-off") t)))))
 
 ;; Штриховка: цвет фона «Нет» (EntityColor с методом None).
-(defun md:hatch-bg (o / c)
+(defun md:hatch-bg (o / c m)
   (if *md:hatch-bg-off*
     (progn
       (setq c (md:try 'vla-get-BackgroundColor o nil))
-      (if c
+      (if c (setq m (md:try 'vla-get-ColorMethod c nil)))
+      ;; Фон уже «Нет» (ColorMethod = 0) или BackgroundColor недоступен:
+      ;; менять нечего, счётчик не растёт (иначе идемпотентность ломается).
+      (if (or (null c) (and (numberp m) (= m 0)))
+        nil
         (progn
           (md:try-set 'vla-put-EntityColor c -939524096)
           (md:try-set 'vla-put-ColorMethod c 0)
-          (md:try-set 'vla-put-BackgroundColor o c)))
-      (md:bump "hatch"))))
+          (md:try-set 'vla-put-BackgroundColor o c)
+          (if (= 0 (md:try 'vla-get-ColorMethod c nil))
+            (md:bump "hatch")))))))
 
 (defun md:text-p (nm)
   (or (= nm "ACDBMTEXT")
@@ -263,35 +285,34 @@
   res)
 
 ;; Тексты: отметки, размеры, обозначения изделий.
-(defun md:do-text (o / lay txt col)
+(defun md:do-text (o / lay txt col chg)
   (setq lay (md:layer-of o))
   (cond
     ((md:in-list lay *md:elev-layers*)
-     (md:bump "elev")
-     (md:set-h o *md:dim-height*)
-     (md:bg-off o)
-     (md:set-color o *md:elev-color*))
+     (setq chg nil)
+     (if (md:set-h o *md:dim-height*) (setq chg t))
+     (if (md:bg-off o) (setq chg t))
+     (if (md:set-color o *md:elev-color*) (setq chg t))
+     (if chg (md:bump "elev")))
     ((md:in-list lay *md:dim-layers*)
-     (md:bump "dim-text")
-     (md:set-h o *md:dim-height*)
+     (if (md:set-h o *md:dim-height*) (md:bump "dim-text"))
      (md:bg-off o))
     ((md:in-list lay *md:prod-layers*)
-     (md:bump "prod")
-     (md:set-h o *md:prod-height*)
-     (md:bg-off o)
+     (setq chg nil)
+     (if (md:set-h o *md:prod-height*) (setq chg t))
+     (if (md:bg-off o) (setq chg t))
      (setq txt (md:try 'vla-get-TextString o nil))
      (setq col (md:mark-color txt))
      (if (null col) (setq col (md:layer-default lay)))
-     (if col (md:set-color o col)))))
+     (if (and col (md:set-color o col)) (setq chg t))
+     (if chg (md:bump "prod")))))
 
 ;; Марки осей: цвет красный у всех объектов слоя (в т.ч. внутри блоков).
 (defun md:do-grid (o)
-  (md:bump "grid")
-  (md:set-color o *md:grid-color*))
+  (if (md:set-color o *md:grid-color*) (md:bump "grid")))
 
 ;; Размеры: фон «нет» в стиле, высота текста через свойство, если доступно.
-(defun md:do-dim (o / style ds)
-  (md:bump "dim")
+(defun md:do-dim (o / style ds tf)
   (setq style (md:try 'vla-get-StyleName o nil))
   (if style
     (progn
@@ -300,13 +321,16 @@
                                                         (vlax-get-acad-object) nil))
                           nil)
                         style))
-      (if ds
-        (progn
-          (md:try-set 'vla-put-Dimtfill ds *md:dim-tfill*)
-          (md:bump "dimstyle")))))
-  (if (vlax-property-available-p o 'TextHeight t)
-    (progn (md:try-set 'vla-put-TextHeight o *md:dim-height*)
-           (md:bump "dim-text"))))
+      (cond
+        ((null ds) (md:warn (strcat "стиль размера не найден: " style)))
+        (t
+         (setq tf (md:try 'vla-get-Dimtfill ds nil))
+         (if (and (numberp tf) (/= tf *md:dim-tfill*))
+           (progn
+             (md:try-set 'vla-put-Dimtfill ds *md:dim-tfill*)
+             (md:bump "dim"))))))
+    (md:warn "у размера нет стиля — DIMTFILL не проверен"))
+  (if (md:set-h o *md:dim-height*) (md:bump "dim-text")))
 
 (defun md:do-obj (o / nm lay)
   (setq nm (md:objname o))
@@ -316,13 +340,27 @@
     ((wcmatch nm "*DIMENSION*") (md:do-dim o))
     ((md:in-list lay (list *md:grid-layer*)) (md:do-grid o))
     ((and (md:in-list lay *md:elev-layers*) (not (md:text-p nm)))
-     (md:bump "elev")
-     (md:set-color o *md:elev-color*))
+     (if (md:set-color o *md:elev-color*) (md:bump "elev")))
     ((md:text-p nm) (md:do-text o))
     (t nil)))
 
 (defun md:scan-space (space)
   (if space (vlax-for o space (md:do-obj o))))
+
+;; Листы (Layout): только пространство листа, Model — уже обработан.
+;; TabOrder > 0 отсекает модель; если свойство недоступно, обходим все Layouts.
+(defun md:scan-paperspace (dbx / lays lay ps tno nm)
+  (setq lays (md:try 'vla-get-Layouts dbx nil))
+  (if lays
+    (vlax-for lay lays
+      (setq nm (md:try 'vla-get-Name lay nil))
+      (setq tno (md:try 'vla-get-TabOrder lay nil))
+      ;; Модель уже обошли через ModelSpace: отсекаем по имени и TabOrder.
+      (if (and (not (and nm (= (strcase nm) "MODEL")))
+               (or (not (numberp tno)) (> tno 0)))
+        (progn
+          (setq ps (md:try 'vla-get-Block lay nil))
+          (if ps (md:scan-space ps)))))))
 
 (defun md:scan-blocks (dbx / blocks b)
   (setq blocks (md:try 'vla-get-Blocks dbx nil))
@@ -336,7 +374,7 @@
 ;;; 4. СЛОИ
 ;;; ---------------------------------------------------------------------------
 
-(defun md:do-layers (dbx / lays name lay)
+(defun md:do-layers (dbx / lays name lay cur)
   (setq lays (md:try 'vla-get-Layers dbx nil))
   (cond
     ((null lays) (md:warn "коллекция слоёв недоступна"))
@@ -345,14 +383,18 @@
        (setq lay (md:item lays name))
        (cond
          ((null lay) (md:warn (strcat "слой не найден: " name)))
-         (t (md:try-set 'vla-put-LayerOn lay :vlax-false)
-            (md:bump "layers-off"))))
+         ((md:on-p (md:try 'vla-get-LayerOn lay nil))
+          (if (md:try-set 'vla-put-LayerOn lay :vlax-false)
+            (md:bump "layers-off")))))
      (foreach name *md:gray-layers*
        (setq lay (md:item lays name))
        (cond
          ((null lay) (md:warn (strcat "слой не найден: " name)))
-         (t (md:try-set 'vla-put-Color lay *md:gray-color*)
-            (md:bump "layers-gray")))))))
+         (t
+          (setq cur (md:try 'vla-get-Color lay nil))
+          (if (and (numberp cur) (/= cur *md:gray-color*))
+            (if (md:try-set 'vla-put-Color lay *md:gray-color*)
+              (md:bump "layers-gray")))))))))
 
 ;;; ---------------------------------------------------------------------------
 ;;; 5. ObjectDBX
@@ -501,10 +543,10 @@
 ;;; ---------------------------------------------------------------------------
 
 (defun md:backup (path / dir dst r)
-  (setq dir (strcat (vl-filename-directory path) "\\" *md:backup-subdir*))
+  (setq dir (strcat (vl-filename-directory path) "/" *md:backup-subdir*))
   (if (not (vl-file-directory-p dir))
     (vl-catch-all-apply 'vl-mkdir (list dir)))
-  (setq dst (strcat dir "\\" (vl-filename-base path) ".dwg"))
+  (setq dst (strcat dir "/" (vl-filename-base path) ".dwg"))
   (if (findfile dst)
     (progn (md:emit (strcat "  [i] копия уже есть: " dst)) t)
     (progn
@@ -517,17 +559,24 @@
   (md:emit (strcat "\n--- " (vl-filename-base path)))
   (setq *md:st* nil)
   (setq ok t)
-  (md:backup path)
-  (setq tgt (md:dbx-open path))
-  (setq src (md:dbx-open srcpath))
-  (setq *md:dbx* tgt)
+  (if (not (md:backup path))
+    (if *md:require-backup*
+      (progn (md:warn "файл пропущен: нет резервной копии") (setq ok nil))
+      (md:warn "продолжаю без резервной копии")))
+  (if ok
+    (progn
+      (setq tgt (md:dbx-open path))
+      (setq src (md:dbx-open srcpath))
+      (setq *md:dbx* tgt)))
   (cond
+    ((not ok) nil)
     ((or (null tgt) (null src))
      (md:warn "файл не открыт — пропуск")
      (setq ok nil))
     (t
      (md:do-layers tgt)
      (md:scan-space (md:try 'vla-get-ModelSpace tgt nil))
+     (if *md:scan-paperspace* (md:scan-paperspace tgt))
      (md:scan-blocks tgt)
      (md:insert-mark tgt src path)
      (if (md:dbx-save tgt path)
@@ -543,7 +592,7 @@
   (md:emit (strcat "  слоёв выкл.: " (itoa (md:stat "layers-off"))
                    ", серых: " (itoa (md:stat "layers-gray"))
                    ", марок осей: " (itoa (md:stat "grid"))
-                   ", размеров: " (itoa (md:stat "dim"))
+                   ", стилей размеров: " (itoa (md:stat "dim"))
                    ", текстов размеров: " (itoa (md:stat "dim-text"))
                    ", изделий: " (itoa (md:stat "prod"))
                    ", отметок: " (itoa (md:stat "elev"))
@@ -593,13 +642,28 @@
        ((or (null src) (not (findfile src)))
         (princ "\nНе указан DWG с блоком «Марка этажа» (MARSHDWGSRC)."))
        (t
-        (setq log (strcat (vl-filename-directory f) "\\" *md:log-name*))
+        (setq log (strcat (vl-filename-directory f) "/" *md:log-name*))
         (md:log-reset log)
         (md:emit (strcat "MARSHDWG " *md:rev* " | источник блока: " src))
         (md:emit (strcat "Файл: " f))
         (md:run-one f src)
         (md:emit (strcat "\nЖурнал: " log))))))
   (princ))
+
+;; Список DWG в папке; при *md:recurse* — и во вложенных папках.
+(defun md:collect (folder / files name sub res)
+  (setq files (vl-directory-files folder "*.dwg" 1))
+  (setq res nil)
+  (foreach name files
+    (setq res (append res (list (strcat folder "/" name)))))
+  (if *md:recurse*
+    (foreach sub (vl-directory-files folder "*.*" -1)
+      ;; MARSHDWG_BACKUP в обход не берём: там исходники для отката.
+      (if (and (not (member sub (list "." "..")))
+               (/= (strcase sub) (strcase *md:backup-subdir*))
+               (vl-file-directory-p (strcat folder "/" sub)))
+        (setq res (append res (md:collect (strcat folder "/" sub)))))))
+  res)
 
 (defun c:MARSHDWG (/ folder files k src log path)
   (setq folder (md:pick-folder))
@@ -612,14 +676,14 @@
        ((or (null src) (not (findfile src)))
         (princ "\nНе указан DWG с блоком «Марка этажа» (MARSHDWGSRC)."))
        (t
-        (setq files (vl-directory-files folder "*.dwg" 1))
-        (setq log (strcat folder "\\" *md:log-name*))
+        (setq files (md:collect folder))
+        (setq log (strcat folder "/" *md:log-name*))
         (md:log-reset log)
         (md:emit (strcat "MARSHDWG " *md:rev* " | источник блока: " src))
         (md:emit (strcat "Папка: " folder " | файлов: " (itoa (length files))))
         (setq k 0)
         (foreach path files
-          (if (md:run-one (strcat folder "\\" path) src) (setq k (1+ k))))
+          (if (md:run-one path src) (setq k (1+ k))))
         (md:emit (strcat "\nОбработано файлов: " (itoa k)
                          " из " (itoa (length files))))
         (md:emit (strcat "Журнал: " log))))))
