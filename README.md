@@ -136,6 +136,7 @@ tools/dwg_dump.py       DWG → JSON (LibreDWG) для проверок
 tests/                  structure, check_rules, test_names, test_lisp_logic
 input/                  исходные DWG (в git не кладутся, см. input/README.md)
 out/                    результат сухого прогона
+docs/USAGE.md           как работает и что делать по шагам (для заказчика)
 docs/VERIFICATION.md    протокол офлайн-проверки
 docs/REVIEW-RESPONSE.md ответ на ревью 14 пунктов + вопросы заказчику
 docs/GUIDE-1.2.md      руководство: замечание -> решение -> как проверить
