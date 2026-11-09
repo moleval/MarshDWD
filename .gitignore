@@ -1,0 +1,4 @@
+dump/
+out/
+input/*.dwg
+__pycache__/

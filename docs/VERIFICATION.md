@@ -1,0 +1,57 @@
+# Протокол офлайн-проверки MARSHDWG (2026-11-09)
+
+Исходники — DWG AC1027 (AutoCAD 2013), присланы как `.pdf`. Разбор: LibreDWG (dwgread / dwg2dxf) + ezdxf.
+Тестовый файл: `Объект ОП1.dwg`; источник блока: `Марка этажа.dwg`.
+
+## 1. tests/check_rules.py — правила против содержимого DWG
+```
+=== dump/op1.json
+  нет слоёв: G-ANNO-NOTE
+  счётчики: {'grid': 93, 'dim': 39, 'dim_text': 39, 'prod': 81, 'elev': 3, 'hatch': 172, 'prod_colored': 81, 'unmapped_marks': 1}
+  марки: А, Б, ББ-1, ББ-2, ВТ-1, ВТ-2, ВТ-3, ВТ-4, ДВ-1, ДВ-2, ДГ-1, ДГ-2, ДН-1, ДН-2, ДПВ-1, ДС-1, ДС-2, ДСВ-2, ДСВ-3, ОК-1, ОК-2, ОК-4, ОЛ-1.1, ОЛ-3.1
+  атрибут «Этаж»: '1'
+  [i] марка А: под шаблон не подошла, цвет по слою (ожидаемо для одиночных «А»/«Б» на A-GLAZ-IDEN)
+  [OK]
+=== dump/mark.json
+  нет слоёв: A-ANNO-NOTE, A-AREA-IDEN, A-DETL, A-FLOR-IDEN, G-ANNO-NOTE, G-ANNO-REVC, G-ANNO-REVC-IDEN, G-ANNO-TEXT, I-FURN, P-SANR-FIXT, A-ANNO-DIMS, A-ANNO-DIMS-100, S-GRID, S-GRID-IDEN
+  счётчики: {'grid': 0, 'dim': 0, 'dim_text': 0, 'prod': 0, 'elev': 0, 'hatch': 0, 'prod_colored': 0, 'unmapped_marks': 0}
+  блок: {'name': 'Марка этажа', 'attdef': ['Этаж'], 'attrib': [], 'entities': 3, 'inserts': 1, 'base_pt': [0.0, 0.0, 0.0]}
+  [OK]
+```
+## 2. tests/structure.py — структура LISP и зеркало правил
+```
+OK   MARSHDWG.lsp (utf-8): top-level=84, defun=50, if=67, foreach=10, while=5, bytes=26650
+OK   MARSHDWG.lsp (cp1251): top-level=84, defun=50, if=67, foreach=10, while=5, bytes=24852
+OK   dist == src (CP1251/CRLF)
+OK   функций md:*: 46, все вызываются
+OK   команды: c:MARSHDWG, c:MARSHDWGCFG, c:MARSHDWGFILE, c:MARSHDWGSRC
+OK   переменных *md:*: 31
+OK   правила LISP == tests/check_rules.py
+ИТОГ: OK
+```
+## 3. tests/test_lisp_logic.py — таблицы через настоящий LISP-код
+```
+OK   имя файла -> атрибут: 13 случаев (из LISP)
+OK   марка -> цвет: 15 случаев (из LISP)
+OK   слой -> цвет: 4 случаев (из LISP)
+ИТОГ: OK
+```
+## 4. tools/dryrun.py — сухой прогон на DXF
+```
+правила: {'hatch': 150, 'grid': 44, 'dim': 39, 'elev': 8, 'prod': 81}
+блок вставлен: Марка этажа @ (0.0, 0.0), поле «Этаж» = 1
+сохранено: out/Объект ОП1 (проверка).dxf 2275110 байт
+```
+
+## Что это значит по пунктам ТЗ
+
+| № | Проверено офлайн |
+|---|---|
+| 1 | обрабатываются все 10 слоёв; слоя `G-ANNO-NOTE` в тестовом файле нет — обработчик предупредит и продолжит |
+| 2 | 4 слоя получают цвет 251 |
+| 3 | 93 объекта `S-GRID-IDEN` (MTEXT + содержимое блоков) → красный |
+| 4 | 39 текстов размеров H=250, DIMTFILL=0, маски сняты |
+| 5 | 81 текст обозначений изделий H=225 |
+| 6 | цвета марок: Д* синий, ОК/Б* жёлтый, ОЛ голубой, ВТ зелёный, EI красный; отметки фиолетовые (8 объектов) |
+| 7 | 150–172 штриховки: фон «Нет» |
+| — | блок «Марка этажа» + атрибут «Этаж» = 1, вставка в 0,0, масштаб 1:1 |

@@ -1,0 +1,8 @@
+# Внутри dwg-auto свои правила: корневой .gitattributes рассчитан на MARK.lsp
+# и объявляет *.lsp как CP1251 — здесь это не нужно.
+# src — UTF-8/LF, dist — CP1251/CRLF; оба храним байт-в-байт.
+src/*.lsp   -text !working-tree-encoding
+dist/*.lsp  -text !working-tree-encoding
+*.md        text eol=lf
+*.py        text eol=lf
+*.yml       text eol=lf

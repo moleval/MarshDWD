@@ -1,0 +1,22 @@
+name: MARSHDWG tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Сборка dist из src
+        run: python tools/build.py
+      - name: Структура LISP и зеркало правил
+        run: python tests/structure.py
+      - name: Таблицы через настоящий LISP-код
+        run: python tests/test_lisp_logic.py
+      - name: Проверка dist не разошёлся с src
+        run: git diff --exit-code dist/MARSHDWG.lsp
