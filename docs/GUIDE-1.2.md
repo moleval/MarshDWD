@@ -10,7 +10,7 @@
 |---|---|
 | Ветка | `arena/2f9949bf-mark`, HEAD `8ef55f9` |
 | Исходник | `src/MARSHDWG.lsp` — UTF-8/LF, 732 строки, 90 форм, 53 `defun` |
-| Рабочий файл | `dist/MARSHDWG.lsp` — CP1251/CRLF без BOM, 28 128 б, sha256 `c21d1422…` |
+| Рабочий файл | `dist/MARSHDWG.lsp` — CP1251/CRLF без BOM, 28 132 б, sha256 `2d7707cf…` |
 | Версия | `*md:rev*` = `Ред. 1.1` |
 | Тесты | `build.py` → `structure.py` → `test_lisp_logic.py` — все `ИТОГ: OK` |
 | Раздатчик | архив не нужен: `dist/MARSHDWG.lsp` лежит в репозитории |
@@ -400,7 +400,7 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/moleval/MarshDWD/main/
 **Важно:** качать именно `raw.githubusercontent.com` (или Release / git-клон).
 Ссылка на веб-страницу GitHub (`blob/...`) отдаёт файл перекодированным в UTF-8:
 кириллица превращается в `Ěŕđęŕ ýňŕćŕ`, блок «Марка этажа» перестаёт находиться.
-Признак правильного файла — 28 128 байт.
+Признак правильного файла — 28 132 байт.
 
 ### Шаг 2. Загрузить в AutoCAD
 
@@ -483,7 +483,7 @@ python3 tests/test_lisp_logic.py  # таблицы через настоящий
 
 ```text
 OK   MARSHDWG.lsp (utf-8): top-level=90, defun=53, if=92, foreach=12, while=5, bytes=30476
-OK   MARSHDWG.lsp (cp1251): top-level=90, defun=53, if=92, foreach=12, while=5, bytes=28128
+OK   MARSHDWG.lsp (cp1251): top-level=90, defun=53, if=92, foreach=12, while=5, bytes=28132
 OK   скобки: глубина 0, все 53 defun на верхнем уровне
 OK   dist == src (CP1251/CRLF)
 OK   функций md:*: 49, все вызываются

@@ -264,7 +264,7 @@
           (md:try-set 'vla-put-EntityColor c -939524096)
           (md:try-set 'vla-put-ColorMethod c 0)
           (md:try-set 'vla-put-BackgroundColor o c)
-          (if (= 0 (md:try 'vla-get-ColorMethod c nil))
+          (if (equal 0 (md:try 'vla-get-ColorMethod c nil))
             (md:bump "hatch")))))))
 
 (defun md:text-p (nm)

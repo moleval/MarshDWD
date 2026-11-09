@@ -21,7 +21,7 @@
 ## 2. tests/structure.py — структура LISP и зеркало правил
 ```
 OK   MARSHDWG.lsp (utf-8): top-level=90, defun=53, if=92, foreach=12, while=5, bytes=30476
-OK   MARSHDWG.lsp (cp1251): top-level=90, defun=53, if=92, foreach=12, while=5, bytes=28128
+OK   MARSHDWG.lsp (cp1251): top-level=90, defun=53, if=92, foreach=12, while=5, bytes=28132
 OK   скобки: глубина 0, все 53 defun на верхнем уровне
 OK   dist == src (CP1251/CRLF)
 OK   функций md:*: 49, все вызываются
