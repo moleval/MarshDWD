@@ -6,6 +6,10 @@ MARSHDWG.lsp, копирует блок «Марка этажа» из исто�
 с атрибутом «Этаж» и сохраняет out/<имя> (проверка).dxf.
 
 DXF — только чтобы посмотреть глазами; рабочий результат даёт LISP на DWG.
+
+Важно: правила здесь повторяют LISP по порядку из md:do-obj и считают
+изменения только по факту (второй прогон даёт нули) — иначе предпросмотр
+расходится с тем, что делает MARSHDWG.lsp.
 """
 from pathlib import Path
 import sys
@@ -20,20 +24,76 @@ import check_rules as R  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 
 
+# --- служебное ---------------------------------------------------------------
+def bump(stats, key, changed):
+    """Счётчик растёт только если правило действительно что-то изменило."""
+    if changed:
+        stats[key] = stats.get(key, 0) + 1
+    return changed
+
+
+def iter_entities(doc):
+    """Модель + определения блоков (LISP обходит и их), без листов и xref."""
+    yield from doc.modelspace()
+    for blk in doc.blocks:
+        if blk.name.lower().startswith("*"):
+            continue
+        yield from blk
+
+
+def set_height(e, t, h):
+    attr = "height" if t == "TEXT" else "char_height"
+    if abs((e.dxf.get(attr) or 0) - h) < 1e-9:
+        return False
+    e.dxf.set(attr, h)
+    return True
+
+
+def set_color(e, c):
+    if e.dxf.get("color") == c:
+        return False
+    e.dxf.color = c
+    return True
+
+
 def layer_color(doc, name, index):
-    """Индексный цвет; true_color мешает — снимаем."""
-    if name in doc.layers:
-        lay = doc.layers.get(name)
-        lay.dxf.color = index
-        if lay.dxf.hasattr("true_color"):
-            lay.dxf.discard("true_color")
+    """Индексный цвет слоя; true_color мешает — снимаем. True = было изменение."""
+    if name not in doc.layers:
+        return False
+    lay = doc.layers.get(name)
+    changed = lay.dxf.get("color") != index or lay.dxf.hasattr("true_color")
+    lay.dxf.color = index
+    if lay.dxf.hasattr("true_color"):
+        lay.dxf.discard("true_color")
+    return changed
 
 
 def layer_off(doc, name):
-    if name in doc.layers:
-        lay = doc.layers.get(name)
-        c = lay.dxf.get("color", 7)
-        lay.dxf.color = -abs(c) if 0 < abs(c) <= 255 else -7
+    """Выключить слой: только видимость, без заморозки и блокировки."""
+    if name not in doc.layers:
+        return False
+    lay = doc.layers.get(name)
+    if lay.is_off():
+        return False
+    c = lay.dxf.get("color", 7)
+    lay.dxf.color = -abs(c) if 0 < abs(c) <= 255 else -7
+    return True
+
+
+def hatch_bg_off(hatch):
+    """Фон штриховки «Нет».
+
+    В DXF активный фон — это XDATA HATCHBACKGROUNDCOLOR (ezdxf: .bgcolor),
+    поэтому «нет фона» = XDATA отсутствует. В LISP то же самое: ColorMethod
+    = None (0xC8) в BackgroundColor.
+    """
+    try:
+        if hatch.bgcolor is None:
+            return False
+        del hatch.bgcolor
+        return True
+    except Exception:  # noqa: BLE001 — нет XDATA / старая версия DXF
+        return False
 
 
 def ensure_tables(doc):
@@ -50,49 +110,54 @@ def ensure_tables(doc):
             Material.new(doc=doc, handle=handle, dxfattribs={"name": name})
 
 
+# --- правила -----------------------------------------------------------------
 def apply_rules(doc):
     stats = {}
+
     for n in R.OFF_LAYERS:
-        layer_off(doc, n)
+        bump(stats, "layers_off", layer_off(doc, n))
     for n in R.GRAY_LAYERS:
-        layer_color(doc, n, R.GRAY_COLOR)
-    layer_color(doc, R.GRID_LAYER, R.GRID_COLOR)
+        bump(stats, "layers_gray", layer_color(doc, n, R.GRAY_COLOR))
+    # Слой марок осей получает 251 (п.2), а его объекты — 1 (п.3): цвет слоя
+    # красным не делаем, иначе предпросмотр расходится с LISP.
+    layer_color(doc, R.GRID_LAYER, R.GRAY_COLOR)
 
     for ds in doc.dimstyles:
-        ds.dxf.dimtfill = 0            # фон «нет»
-        ds.dxf.dimtxt = R.DIM_HEIGHT   # высота текста размера
+        if ds.dxf.get("dimtfill", 0) != 0:
+            ds.dxf.dimtfill = 0                       # фон «нет»
+            bump(stats, "dimstyle", True)
+        if abs((ds.dxf.get("dimtxt") or 0) - R.DIM_HEIGHT) > 1e-9:
+            ds.dxf.dimtxt = R.DIM_HEIGHT              # высота текста размера
+            bump(stats, "dimstyle", True)
 
-    for e in doc.modelspace():
+    for e in iter_entities(doc):
         t = e.dxftype()
         lay = e.dxf.layer.upper()
-        if t in ("MTEXT", "TEXT", "ATTRIB"):
+
+        if t == "HATCH":
+            bump(stats, "hatch", hatch_bg_off(e))
+        elif t.startswith("DIMENSION"):
+            stats["dim"] = stats.get("dim", 0) + 1   # «сколько размеров», не изменение
+        elif lay == R.GRID_LAYER:
+            # как md:do-obj: марки осей проверяются раньше текстов
+            bump(stats, "grid", set_color(e, R.GRID_COLOR))
+        elif lay in R.ELEV_LAYERS and t not in ("MTEXT", "TEXT", "ATTRIB"):
+            bump(stats, "elev", set_color(e, R.ELEV_COLOR))
+        elif t in ("MTEXT", "TEXT", "ATTRIB"):
             if t == "MTEXT" and e.dxf.get("bg_fill", 0) == 1:
-                e.dxf.bg_fill = 0      # маска -> нет фона
-                stats["bg_off"] = stats.get("bg_off", 0) + 1
+                e.dxf.bg_fill = 0                     # маска -> нет фона
+                bump(stats, "bg_off", True)
             if lay in R.ELEV_LAYERS:
-                e.dxf.char_height = R.DIM_HEIGHT
-                e.dxf.color = R.ELEV_COLOR
-                stats["elev"] = stats.get("elev", 0) + 1
+                bump(stats, "height", set_height(e, t, R.DIM_HEIGHT))
+                bump(stats, "elev", set_color(e, R.ELEV_COLOR))
             elif lay in R.DIM_LAYERS:
-                e.dxf.char_height = R.DIM_HEIGHT
-                stats["dim_text"] = stats.get("dim_text", 0) + 1
+                bump(stats, "dim_text", set_height(e, t, R.DIM_HEIGHT))
             elif lay in R.PROD_LAYERS:
-                e.dxf.char_height = R.PROD_HEIGHT
+                bump(stats, "prod", set_height(e, t, R.PROD_HEIGHT))
                 txt = e.plain_text() if t == "MTEXT" else e.dxf.get("text", "")
                 col = R.mark_color(txt) or dict(R.PROD_DEFAULT).get(lay)
                 if col:
-                    e.dxf.color = col
-                stats["prod"] = stats.get("prod", 0) + 1
-        elif t == "HATCH":
-            stats["hatch"] = stats.get("hatch", 0) + 1
-        elif t.startswith("DIMENSION"):
-            stats["dim"] = stats.get("dim", 0) + 1
-        elif lay == R.GRID_LAYER:
-            e.dxf.color = R.GRID_COLOR
-            stats["grid"] = stats.get("grid", 0) + 1
-        elif lay in R.ELEV_LAYERS:
-            e.dxf.color = R.ELEV_COLOR
-            stats["elev"] = stats.get("elev", 0) + 1
+                    bump(stats, "color", set_color(e, col))
     return stats
 
 

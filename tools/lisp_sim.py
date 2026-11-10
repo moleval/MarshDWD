@@ -68,6 +68,10 @@ class Sim:
             if isinstance(f, list) and f and f[0].lower() == "defun":
                 self.defs[f[1].lower()] = f
         self.globals = Env()
+        # В AutoLISP после (vl-load-com) :vlax-true = -1, :vlax-false = 0.
+        # Без этого md:on-p (на них построен) не проверить.
+        self.globals[":vlax-true"] = -1
+        self.globals[":vlax-false"] = 0
         self.load_globals()
 
     def load_globals(self):
@@ -196,9 +200,35 @@ class Sim:
             # у AutoLISP имя без .dwg остаётся как есть: «Объект ОП1.dwg» -> «Объект ОП1»
             p = re.split(r"[\\/]", str(self.eval(args[0], env)))[-1]
             return p[:-4] if p.lower().endswith(".dwg") else p
+        if op in ("vl-directory-files", "vl-file-directory-p"):
+            # работа с реальной ФС, чтобы проверять md:collect (обход папок)
+            import os
+            path = str(self.eval(args[0], env))
+            if op == "vl-file-directory-p":
+                return os.path.isdir(path)
+            pattern = self.eval(args[1], env) if len(args) > 1 else None
+            mode = self.eval(args[2], env) if len(args) > 2 else 0
+            try:
+                names = sorted(os.listdir(path))
+            except OSError:
+                return None
+            mode = int(mode or 0)
+            out = []
+            for n in names:
+                isdir = os.path.isdir(os.path.join(path, n))
+                if mode == -1 and not isdir:
+                    continue
+                if mode == 1 and isdir:
+                    continue
+                if mode != -1 and pattern and not wcmatch(n, str(pattern)):
+                    continue
+                out.append(n)
+            if mode == -1:
+                out = ["."] + out + [".."]
+            return out or None
         if op == "vl-filename-directory":
-            p = str(self.eval(args[0], env))
-            return p.rsplit("\\", 1)[0] if "\\" in p else ""
+            p = str(self.eval(args[0], env)).replace("\\", "/")
+            return p.rsplit("/", 1)[0] if "/" in p else ""
         if op == "vl-princ-to-string":
             return str(self.eval(args[0], env))
         if op == "vl-string-right-trim":
@@ -214,7 +244,8 @@ class Sim:
             if len(args) > 2:
                 return abs((a or 0) - (b or 0)) <= self.eval(args[2], env)
             return a == b
-        if op == "=":
+        if op in ("=", "eq"):
+            # eq для атомов ведёт себя как =; :vlax-true/-false — обычные символы
             return self.eval(args[0], env) == self.eval(args[1], env)
         if op == "/=":
             return self.eval(args[0], env) != self.eval(args[1], env)
@@ -226,6 +257,9 @@ class Sim:
             return self.eval(args[0], env) >= self.eval(args[1], env)
         if op == "<=":
             return self.eval(args[0], env) <= self.eval(args[1], env)
+        if op == "numberp":
+            v = self.eval(args[0], env)
+            return isinstance(v, (int, float)) and not isinstance(v, bool)
         if op == "type":
             v = self.eval(args[0], env)
             return {str: "STR", int: "INT", float: "REAL"}.get(type(v), "LIST")
@@ -278,6 +312,10 @@ class Sim:
                 if isinstance(pair, list) and pair and pair[0] == key:
                     return pair
             return None
+        if op == "member":
+            item = self.eval(args[0], env)
+            lst = self.eval(args[1], env) or []
+            return lst if item in lst else None
         if op == "subst":
             new, old, lst = (self.eval(a, env) for a in args)
             return [new if x == old else x for x in (lst or [])]

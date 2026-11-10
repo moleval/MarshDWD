@@ -135,6 +135,16 @@ python tests\test_lisp_logic.py
 python tools\dryrun.py dump\op1.dxf dump\mark.dxf out "7.2 ОП1.dwg"
 ```
 
+Всё сразу, без реальных DWG (нужен `pip install ezdxf`):
+
+```bat
+python tools\selftest.py
+```
+
+Скрипт строит тестовый чертёж (`tools/make_test_dxf.py`), прогоняет по нему все
+правила, сверяет каждый пункт, проверяет идемпотентность и обход папок.
+Подробнее — `docs/USAGE.md`, §8.1.
+
 ## Файлы
 
 ```text
@@ -144,6 +154,8 @@ tools/build.py          сборка dist из src
 tools/lisp_sim.py       интерпретатор подмножества AutoLISP для тестов
 tools/dryrun.py         сухой прогон на DXF
 tools/render.py         картинка до/после
+tools/make_test_dxf.py  тестовый чертёж + источник блока (для selftest)
+tools/selftest.py       полная проверка без AutoCAD одной командой
 tools/dwg_dump.py       DWG → JSON (LibreDWG) для проверок
 tests/                  structure, check_rules, test_names, test_lisp_logic
 input/                  исходные DWG (в git не кладутся, см. input/README.md)

@@ -34,3 +34,10 @@ LAYER_DEFAULT = {
     "A-WALL-IDEN": 3,
     "S-GRID": None,
 }
+
+# md:on-p: «включено» для :vlax-true/1/-1, «выключено» для nil/0/:vlax-false.
+# Значения — как их отдают разные версии AutoCAD (п.13 ревью).
+ON_P = {
+    ":vlax-true": True, ":vlax-false": False, "nil": False,
+    "1": True, "0": False, "-1": True, "2": True, '"x"': True,
+}
