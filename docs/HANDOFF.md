@@ -22,7 +22,7 @@ AutoLISP-обработчик DWG для AutoCAD: пакетно правит с
 
 ```
 dist/MARSHDWG.lsp   рабочий файл для AutoCAD: CP1251 + CRLF, НЕ пересохранять
-                    в UTF-8 (28 132 б, 732 строки, Ред. 1.2)
+                    в UTF-8 (29 095 б, 747 строк, Ред. 1.2.1)
 src/MARSHDWG.lsp    исходник (UTF-8/LF) — правится он, затем python3 tools/build.py
 tools/build.py      сборка dist из src
 tests/structure.py  разбор LISP, арности, CP1251/CRLF, зеркало правил

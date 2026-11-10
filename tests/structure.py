@@ -85,6 +85,39 @@ def main():
     if not undefined and not unused:
         print(f"OK   функций md:*: {len(defined)}, все вызываются")
 
+    # Арность: в AutoLISP вызов с меньшим числом аргументов — фатальная ошибка
+    # («слишком мало аргументов»), команда обрывается молча. Именно так в 1.2
+    # упал md:bump, объявленный как (k n), но вызванный 19 раз как (k).
+    arity = {}
+    for f in lisp_parse.parse(src):
+        if isinstance(f, list) and f and isinstance(f[0], str) \
+                and f[0].lower() == "defun":
+            params = f[2]
+            cut = next((i for i, x in enumerate(params) if x == "/"), len(params))
+            arity[f[1].lower()] = cut
+
+    def walk(node, out):
+        if isinstance(node, list) and node:
+            if isinstance(node[0], str) and node[0].lower() in arity:
+                out.append((node[0].lower(), len(node) - 1))
+            for x in node:
+                walk(x, out)
+
+    calls = []
+    walk(lisp_parse.parse(src), calls)
+    wrong = {}
+    for name, got in calls:
+        if got != arity[name]:
+            wrong.setdefault((name, arity[name], got), 0)
+            wrong[(name, arity[name], got)] += 1
+    if wrong:
+        for (name, need, got), cnt in sorted(wrong.items()):
+            print(f"FAIL арность {name}: объявлено {need}, передаётся {got} "
+                  f"({cnt} мест) — в AutoCAD это «слишком мало аргументов»")
+        ok = False
+    else:
+        print(f"OK   арность: все {len(calls)} вызовов md:* совпадают с defun")
+
     cmds = set(re.findall(r"\(defun\s+(c:[A-Za-zА-Яа-я0-9_]+)", src))
     expect = {"c:MARSHDWG", "c:MARSHDWGFILE", "c:MARSHDWGSRC", "c:MARSHDWGCFG"}
     if cmds == expect:

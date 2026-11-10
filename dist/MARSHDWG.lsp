@@ -14,11 +14,14 @@
 ;;;
 ;;; –ед. 1.2 Ч после ревью: backup-подпапка вне обхода, фон штриховки не
 ;;; считаетс€ изменением, require-backup работает, счЄтчики идемпотентны.
+;;; –ед. 1.2.1 Ч исправлено падение Ђслишком мало аргументовї: md:bump
+;;; вызывалс€ с одним аргументом, а был объ€влен с двум€. ѕлюс обработка
+;;; обЄрнута в vl-catch-all-apply: сбой пишетс€ в журнал, а не убивает команду.
 ;;; ============================================================================
 
 (vl-load-com)
 
-(setq *md:rev* "–ед. 1.2")
+(setq *md:rev* "–ед. 1.2.1")
 
 ;;; ---------------------------------------------------------------------------
 ;;; 1. ѕ–ј¬»Ћј (единственное место, где что-то настраиваетс€)
@@ -161,11 +164,11 @@
   (setq r (vl-catch-all-apply fn (list obj val)))
   (if (vl-catch-all-error-p r) nil t))
 
-(defun md:bump (k n / cell)
-  (setq n (if n n 1))
+;; ¬нимание: арность в AutoLISP строга€ Ч вызывать только (md:bump "ключ").
+(defun md:bump (k / cell)
   (if (setq cell (assoc k *md:st*))
-    (setq *md:st* (subst (cons k (+ (cdr cell) n)) cell *md:st*))
-    (setq *md:st* (append *md:st* (list (cons k n)))))
+    (setq *md:st* (subst (cons k (1+ (cdr cell))) cell *md:st*))
+    (setq *md:st* (append *md:st* (list (cons k 1)))))
   (cdr (assoc k *md:st*)))
 
 (defun md:stat (k / cell)
@@ -555,7 +558,7 @@
         (progn (md:warn "резервна€ копи€ не сделана") nil)
         (progn (md:emit (strcat "  [i] копи€: " dst)) t)))))
 
-(defun md:run-one (path srcpath / tgt src ok)
+(defun md:run-one (path srcpath / tgt src ok r)
   (md:emit (strcat "\n--- " (vl-filename-base path)))
   (setq *md:st* nil)
   (setq ok t)
@@ -574,14 +577,23 @@
      (md:warn "файл не открыт Ч пропуск")
      (setq ok nil))
     (t
-     (md:do-layers tgt)
-     (md:scan-space (md:try 'vla-get-ModelSpace tgt nil))
-     (if *md:scan-paperspace* (md:scan-paperspace tgt))
-     (md:scan-blocks tgt)
-     (md:insert-mark tgt src path)
-     (if (md:dbx-save tgt path)
-       (md:emit "  [OK] сохранено")
-       (progn (md:warn "не сохранено") (setq ok nil)))))
+     ;; Ћюбой сбой внутри обработки перехватываем: иначе команда обрываетс€
+     ;; без сообщени€, и в журнале остаютс€ только первые строки.
+     (setq r (vl-catch-all-apply
+               '(lambda ()
+                  (md:do-layers tgt)
+                  (md:scan-space (md:try 'vla-get-ModelSpace tgt nil))
+                  (if *md:scan-paperspace* (md:scan-paperspace tgt))
+                  (md:scan-blocks tgt)
+                  (md:insert-mark tgt src path)
+                  (md:dbx-save tgt path))))
+     (cond
+       ((vl-catch-all-error-p r)
+        (md:warn (strcat "—Ѕќ… обработки: " (vl-catch-all-error-message r)))
+        (md:warn "файл не сохранЄн Ч рабочий DWG не изменЄн")
+        (setq ok nil))
+       ((null r) (md:warn "не сохранено") (setq ok nil))
+       (t (md:emit "  [OK] сохранено")))))
   (setq *md:dbx* nil)
   (if tgt (vl-catch-all-apply 'vlax-release-object (list tgt)))
   (if src (vl-catch-all-apply 'vlax-release-object (list src)))
@@ -632,7 +644,7 @@
       path)
     (getstring t "\nѕапка с DWG: ")))
 
-(defun c:MARSHDWGFILE (/ f src log)
+(defun c:MARSHDWGFILE (/ f src log r)
   (setq f (getfiled "DWG дл€ обработки" "" "dwg" 0))
   (cond
     ((null f) (princ "\nќтменено."))
@@ -646,7 +658,10 @@
         (md:log-reset log)
         (md:emit (strcat "MARSHDWG " *md:rev* " | источник блока: " src))
         (md:emit (strcat "‘айл: " f))
-        (md:run-one f src)
+        (setq r (vl-catch-all-apply 'md:run-one (list f src)))
+        (if (vl-catch-all-error-p r)
+          (md:emit (strcat "  [ќЎ»Ѕ ј] "
+                           (vl-catch-all-error-message r))))
         (md:emit (strcat "\n∆урнал: " log))))))
   (princ))
 
