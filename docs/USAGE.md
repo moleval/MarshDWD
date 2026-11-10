@@ -62,20 +62,42 @@
 | Папка с DWG для обработки | только выбранная папка (вложенные — по флагу) |
 | Слои в файлах не заблокированы | объекты на заблокированных слоях изменить нельзя |
 
-Скачивание (PowerShell):
+Скачивание — три способа, любой даёт правильный файл. **Только не через
+страницу репозитория** (`github.com/.../blob/...`): она перекодирует CP1251
+в UTF-8 и кириллица превращается в мусор.
+
+**Способ 1 — архив (самый надёжный).** Скачать `MarshDWD-1.2.zip` из
+репозитория, распаковать, взять оттуда `dist/MARSHDWG.lsp`. В архиве файл
+лежит байт-в-байт, плюс рядом `КАК-ЗАПУСТИТЬ.txt`.
+
+**Способ 2 — raw-ссылка (PowerShell):**
 
 ```powershell
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/moleval/MarshDWD/main/dist/MARSHDWG.lsp" -OutFile "$env:USERPROFILE\Downloads\MARSHDWG.lsp"
 ```
 
-Если `main` ещё не обновлён (PR не смержен) — та же ссылка с веткой
+Если `main` ещё не обновлён (PR не смержен) — в ссылке ветка
 `arena/54cba4ea-marshdwd` вместо `main`.
 
-Проверка целостности (необязательно, но полезно):
+**Способ 3 — архив ветки одним файлом (без git):**
+
+```powershell
+Invoke-WebRequest -Uri "https://codeload.github.com/moleval/MarshDWD/zip/refs/heads/main" -OutFile "$env:TEMP\marshdwd.zip"
+```
+
+Распаковать, взять `dist/MARSHDWG.lsp`.
+
+**Проверка целостности** (после любого способа):
 
 ```powershell
 (Get-Item "$env:USERPROFILE\Downloads\MARSHDWG.lsp").Length   # должно быть 28132
+Get-FileHash "$env:USERPROFILE\Downloads\MARSHDWG.lsp" -Algorithm SHA256
+# начало хэша: 2D7707CF...
 ```
+
+Второй признак: если открыть файл в Блокноте, кириллица должна читаться
+(`Марка этажа`), а не выглядеть как `Ěŕđęŕ ýňŕćŕ`. Первая строка —
+`;;; =====...`.
 
 ---
 

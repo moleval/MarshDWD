@@ -55,6 +55,18 @@ ActiveX/ObjectDBX: **файлы не открываются в редактор�
 
 ## Установка и запуск
 
+### Как скачать файл
+
+| Способ | Что делать |
+|---|---|
+| Архив (надёжный) | скачать `MarshDWD-1.2.zip` → распаковать → взять `dist/MARSHDWG.lsp` |
+| raw-ссылка | `https://raw.githubusercontent.com/moleval/MarshDWD/main/dist/MARSHDWG.lsp` (или ветка `arena/54cba4ea-marshdwd`, пока PR не смержен) |
+| Архив ветки | `https://codeload.github.com/moleval/MarshDWD/zip/refs/heads/main` |
+
+Не скачивать через страницу `blob/` в браузере: она отдаёт файл
+перекодированным в UTF-8, кириллица ломается. Признак правильного файла —
+**28 132 байта**, sha256 начинается на `2d7707cf`.
+
 ```lisp
 (load "D:/MARSHDWG.lsp")
 ```
