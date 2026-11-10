@@ -10,6 +10,7 @@ import sys
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "tools"))
+import lisp_parse  # noqa: E402
 import lisp_sim  # noqa: E402
 import test_names  # noqa: E402
 
@@ -30,6 +31,22 @@ def main():
     ok = ok and not bad
     print(f"{'OK  ' if not bad else 'FAIL'} имя файла -> атрибут: "
           f"{len(test_names.FLOOR)} случаев (из LISP)")
+
+    # md:on-p — предикат «включено» (п.13 ревью): :vlax-true/1/-1/nil/0/"x"
+    # Значения — LISP-выражения (":vlax-false" — символ, а не строка), поэтому
+    # каждое сначала разбирается парсером, как это сделал бы AutoCAD.
+    onp = sim.build("md:on-p")
+    bad_on = []
+    for expr, exp in test_names.ON_P.items():
+        arg = lisp_parse.parse(expr)[0]
+        val = sim.eval(arg, sim.globals)
+        got = bool(onp(val))
+        if got != exp:
+            bad_on.append((expr, got, exp))
+            print(f"FAIL on-p({expr}) = {onp(val)!r}, ожидалось {exp!r}")
+    ok = ok and not bad_on
+    print(f"{'OK  ' if not bad_on else 'FAIL'} включено/выключено (md:on-p): "
+          f"{len(test_names.ON_P)} случаев (из LISP)")
 
     bad = [(t, color(t), c) for t, c in test_names.COLORS.items()
            if color(t) != c]

@@ -5,7 +5,7 @@
 обращаются правила: слои, марки осей, размеры, обозначения изделий,
 отметки, штриховки, блок «Марка этажа» и атрибут «Этаж».
 
-Запуск: python3 tests/check_rules.py dump/op1.json --name "Объект ОП1.dwg"
+Запуск: python3 tests/check_rules.py dump/op1.json --name "7.2 ОП1.dwg"
         python3 tests/check_rules.py --source dump/mark.json
 """
 from pathlib import Path
